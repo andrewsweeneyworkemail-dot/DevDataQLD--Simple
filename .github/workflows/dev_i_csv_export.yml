@@ -1,0 +1,42 @@
+name: Dev.i CSV browser export
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 21 * * *"
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run Playwright CSV downloader
+        run: |
+          python scripts/dev_i_csv_last30.py --days 30 --headless --out output/dev_i_last30.csv
+
+      - name: Upload CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev_i_last30.csv
+          path: output/dev_i_last30.csv
+
+      - name: Upload screenshots (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev_i_screenshots
+          path: logs/screenshots
