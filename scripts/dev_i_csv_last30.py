@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Tuple
 
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from playwright.sync_api import Locator, TimeoutError as PWTimeout, sync_playwright
 
 # The page with the search + results; you used this already:
 BASE_URL = "https://developmenti.brisbane.qld.gov.au/Home/ApplicationSearch"
@@ -91,25 +91,27 @@ def open_date_range(page) -> None:
 def set_date_range(page, start: str, end: str) -> bool:
     """Attempt to populate the date range inputs with multiple selector strategies."""
 
-    def _by_css(start_sel: str, end_sel: str) -> Callable[[], Tuple]:
+    LocatorResolver = Callable[[], tuple[Locator, Locator]]
+
+    def _by_css(start_sel: str, end_sel: str) -> LocatorResolver:
         return lambda: (
             page.locator(start_sel).first,
             page.locator(end_sel).first,
         )
 
-    def _by_css_indices(selector: str, start_idx: int, end_idx: int) -> Callable[[], Tuple]:
+    def _by_css_indices(selector: str, start_idx: int, end_idx: int) -> LocatorResolver:
         return lambda: (
             page.locator(selector).nth(start_idx),
             page.locator(selector).nth(end_idx),
         )
 
-    def _by_label(start_label: str, end_label: str) -> Callable[[], Tuple]:
+    def _by_label(start_label: str, end_label: str) -> LocatorResolver:
         return lambda: (
             page.get_by_label(re.compile(start_label, re.I)).first,
             page.get_by_label(re.compile(end_label, re.I)).first,
         )
 
-    candidate_locators: Iterable[Callable[[], Tuple]] = (
+    candidate_locators: Iterable[LocatorResolver] = (
         _by_label(r"from|start", r"to|end"),
         _by_css("input[placeholder*='Start']", "input[placeholder*='End']"),
         _by_css("input[placeholder*='From']", "input[placeholder*='To']"),
