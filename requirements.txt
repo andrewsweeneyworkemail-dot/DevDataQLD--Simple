@@ -1,0 +1,5 @@
+playwright>=1.42,<2
+pandas>=2.0,<3
+pdfplumber>=0.10,<1
+# tqdm is used for progress reporting when processing DA Forms.
+tqdm>=4.66,<5
