@@ -1,8 +1,8 @@
 diff --git a/scripts/dev_i_csv_last30.py b/scripts/dev_i_csv_last30.py
-index 8d1c8b69c3fce7bea45c73efd06983e3c419a92f..bbb327fcf098404920d8ce41b399ca21456650ea 100644
+index 8d1c8b69c3fce7bea45c73efd06983e3c419a92f..4db2f8ed55d5f655e74f2d65e2efdee8fecacc6a 100644
 --- a/scripts/dev_i_csv_last30.py
 +++ b/scripts/dev_i_csv_last30.py
-@@ -1 +1,255 @@
+@@ -1 +1,320 @@
 - 
 +#!/usr/bin/env python3
 +# -*- coding: utf-8 -*-
@@ -22,7 +22,7 @@ index 8d1c8b69c3fce7bea45c73efd06983e3c419a92f..bbb327fcf098404920d8ce41b399ca21
 +import re
 +import sys
 +from pathlib import Path
-+from typing import Callable, Iterable, Optional, Tuple
++from typing import Callable, Iterable, Optional, Sequence, Tuple
 +
 +from playwright.sync_api import Locator, TimeoutError as PWTimeout, sync_playwright
 +
@@ -117,51 +117,110 @@ index 8d1c8b69c3fce7bea45c73efd06983e3c419a92f..bbb327fcf098404920d8ce41b399ca21
 +            page.get_by_label(re.compile(end_label, re.I)).first,
 +        )
 +
-+    candidate_locators: Iterable[LocatorResolver] = (
++    def _by_placeholder(start_placeholder: str, end_placeholder: str) -> LocatorResolver:
++        return lambda: (
++            page.get_by_placeholder(re.compile(start_placeholder, re.I)).first,
++            page.get_by_placeholder(re.compile(end_placeholder, re.I)).first,
++        )
++
++    def _by_within(container_selector: str, child_selector: str = "input") -> LocatorResolver:
++        container = page.locator(container_selector).first
++        return lambda: (
++            container.locator(child_selector).nth(0),
++            container.locator(child_selector).nth(1),
++        )
++
++    candidate_locators: Sequence[LocatorResolver] = (
 +        _by_label(r"from|start", r"to|end"),
++        _by_placeholder(r"from|start", r"to|end"),
 +        _by_css("input[placeholder*='Start']", "input[placeholder*='End']"),
 +        _by_css("input[placeholder*='From']", "input[placeholder*='To']"),
 +        _by_css("input[data-placeholder*='From']", "input[data-placeholder*='To']"),
 +        _by_css("input[aria-label*='from']", "input[aria-label*='to']"),
++        _by_within("app-date-range"),
++        _by_within("[data-testid='date-range']"),
++        _by_within(".date-range, .mat-date-range-input-container"),
 +        _by_css_indices("input[type='text']", 0, 1),
++        _by_css_indices("input.mat-input-element", 0, 1),
 +    )
++
++    def _fill_inputs(start_inp: Locator, end_inp: Locator) -> bool:
++        for inp, value in ((start_inp, start), (end_inp, end)):
++            inp.scroll_into_view_if_needed(timeout=2000)
++            inp.wait_for(state="visible", timeout=5000)
++            inp.click()
++            try:
++                inp.press("Control+A")
++            except Exception:
++                pass
++            inp.fill(value, timeout=5000)
++
++        page.keyboard.press("Enter")
++        page.wait_for_timeout(1000)
++
++        start_val = start_inp.input_value().strip()
++        end_val = end_inp.input_value().strip()
++        return start_val == start and end_val == end
 +
 +    for resolver in candidate_locators:
 +        try:
 +            start_inp, end_inp = resolver()
-+            start_inp.wait_for(state="visible", timeout=5000)
-+            end_inp.wait_for(state="visible", timeout=5000)
-+
-+            for inp, value in ((start_inp, start), (end_inp, end)):
-+                inp.click()
-+                inp.press("Control+A")
-+                inp.fill(value)
-+
-+            page.keyboard.press("Enter")
-+            page.wait_for_timeout(800)
-+
-+            start_val = start_inp.input_value().strip()
-+            end_val = end_inp.input_value().strip()
-+            if start_val == start and end_val == end:
++            if _fill_inputs(start_inp, end_inp):
 +                ss(page, "03_dates_set")
 +                return True
 +        except Exception:
 +            continue
 +
++    # As a last resort, try to set the values via JavaScript where the input elements expose "value".
++    try:
++        js_start_selectors = (
++            "input[formcontrolname='fromDate']",
++            "input[formcontrolname='fromDateInput']",
++            "input[aria-label*='from']",
++        )
++        js_end_selectors = (
++            "input[formcontrolname='toDate']",
++            "input[formcontrolname='toDateInput']",
++            "input[aria-label*='to']",
++        )
++        for start_sel in js_start_selectors:
++            for end_sel in js_end_selectors:
++                start_ok = page.evaluate(
++                    "(sel, value) => { const el = document.querySelector(sel); if (!el) return false; el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); return true; }",
++                    start_sel,
++                    start,
++                )
++                end_ok = page.evaluate(
++                    "(sel, value) => { const el = document.querySelector(sel); if (!el) return false; el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); return true; }",
++                    end_sel,
++                    end,
++                )
++                if start_ok and end_ok:
++                    page.keyboard.press("Enter")
++                    page.wait_for_timeout(1000)
++                    ss(page, "03_dates_set")
++                    return True
++    except Exception:
++        pass
++
 +    return False
 +
 +
 +def show_results(page) -> None:
-+    try_click_many(page, [("text", r"Show Results"), ("role_button", r"Show Results")], timeout=8000)
-+    page.wait_for_timeout(800)
-+    try_click_many(page, [("text", r"List"), ("role_button", r"List")], timeout=5000)
-+    page.wait_for_timeout(800)
++    try_click_many(page, [("text", r"Show Results"), ("role_button", r"Show Results")], timeout=10000)
++    page.wait_for_timeout(1200)
++    try_click_many(page, [("text", r"List"), ("role_button", r"List")], timeout=6000)
++    page.wait_for_timeout(1200)
 +    ss(page, "04_results_view")
 +
 +
 +def wait_for_results(page, timeout_ms: int = 20000) -> bool:
 +    try:
 +        page.wait_for_selector("table, .mat-table, .results, .list", timeout=timeout_ms, state="visible")
++        try:
++            page.wait_for_selector(".mat-progress-bar, .loading, .spinner", state="hidden", timeout=5000)
++        except PWTimeout:
++            pass
 +        return True
 +    except PWTimeout:
 +        return False
@@ -177,14 +236,20 @@ index 8d1c8b69c3fce7bea45c73efd06983e3c419a92f..bbb327fcf098404920d8ce41b399ca21
 +    ]
 +    for kind, label in patterns:
 +        try:
-+            page.wait_for_timeout(500)
++            page.wait_for_timeout(800)
 +            with page.expect_download(timeout=20000) as dl_wait:
 +                if kind == "role_button":
-+                    page.get_by_role("button", name=re.compile(label, re.I)).first.click(timeout=6000)
++                    btn = page.get_by_role("button", name=re.compile(label, re.I)).first
++                    btn.wait_for(state="visible", timeout=8000)
++                    btn.click(timeout=6000)
 +                elif kind == "text":
-+                    page.get_by_text(re.compile(label, re.I)).first.click(timeout=6000)
++                    link = page.get_by_text(re.compile(label, re.I)).first
++                    link.wait_for(state="visible", timeout=8000)
++                    link.click(timeout=6000)
 +                else:
-+                    page.locator(label).first.click(timeout=6000)
++                    loc = page.locator(label).first
++                    loc.wait_for(state="visible", timeout=8000)
++                    loc.click(timeout=6000)
 +            dl = dl_wait.value
 +            dl.save_as(str(save_path))
 +            return save_path.exists() and save_path.stat().st_size > 0
