@@ -117,12 +117,6 @@ def set_date_range(page, start: str, end: str) -> bool:
             page.get_by_placeholder(re.compile(end_placeholder, re.I)).first,
         )
 
-    def _by_role(start_name: str, end_name: str) -> LocatorResolver:
-        return lambda: (
-            page.get_by_role("textbox", name=re.compile(start_name, re.I)).first,
-            page.get_by_role("textbox", name=re.compile(end_name, re.I)).first,
-        )
-
     def _by_within(container_selector: str, child_selector: str = "input") -> LocatorResolver:
         container = page.locator(container_selector).first
         return lambda: (
@@ -131,28 +125,17 @@ def set_date_range(page, start: str, end: str) -> bool:
         )
 
     candidate_locators: Sequence[LocatorResolver] = (
-        _by_role(r"from|start", r"to|end"),
-        _by_role(r"date range from", r"date range to"),
         _by_label(r"from|start", r"to|end"),
         _by_placeholder(r"from|start", r"to|end"),
         _by_css("input[placeholder*='Start']", "input[placeholder*='End']"),
         _by_css("input[placeholder*='From']", "input[placeholder*='To']"),
         _by_css("input[data-placeholder*='From']", "input[data-placeholder*='To']"),
         _by_css("input[aria-label*='from']", "input[aria-label*='to']"),
-        _by_css("input[name*='from']", "input[name*='to']"),
-        _by_css("input[id*='from']", "input[id*='to']"),
-        _by_css("input[data-testid*='from']", "input[data-testid*='to']"),
         _by_within("app-date-range"),
-        _by_within("developmenti-date-range"),
-        _by_within("[data-testid='date-range'], [data-testid='dateRange']"),
-        _by_within("[data-test='date-range'], [data-test='dateRange']"),
         _by_within("[data-testid='date-range']"),
         _by_within(".date-range, .mat-date-range-input-container"),
-        _by_within("mat-date-range-input"),
-        _by_within("mat-date-range-input-container"),
         _by_css_indices("input[type='text']", 0, 1),
         _by_css_indices("input.mat-input-element", 0, 1),
-        _by_css_indices("input[type='date']", 0, 1),
     )
 
     def _fill_inputs(start_inp: Locator, end_inp: Locator) -> bool:
@@ -184,105 +167,33 @@ def set_date_range(page, start: str, end: str) -> bool:
 
     # As a last resort, try to set the values via JavaScript where the input elements expose "value".
     try:
-        js_attempt = page.evaluate(
-            """
-            (start, end) => {
-                const fireEvents = (input, value) => {
-                    input.focus();
-                    input.value = value;
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                    input.blur();
-                };
-
-                const containerSelectors = [
-                    "[data-testid='date-range']",
-                    "[data-testid='dateRange']",
-                    "[data-test='date-range']",
-                    "[data-test='dateRange']",
-                    "app-date-range",
-                    "developmenti-date-range",
-                    "mat-date-range-input",
-                    "mat-date-range-input-container",
-                    ".mat-date-range-input",
-                    ".mat-date-range-input-container",
-                    ".date-range",
-                ];
-
-                const attributeScore = input => {
-                    const attrs = [
-                        'aria-label',
-                        'placeholder',
-                        'name',
-                        'id',
-                        'formcontrolname',
-                        'data-testid',
-                        'data-test',
-                        'data-placeholder',
-                        'aria-labelledby',
-                    ];
-                    const haystack = attrs
-                        .map(attr => (input.getAttribute(attr) || '').toLowerCase())
-                        .join(' ');
-                    return haystack;
-                };
-
-                const findInputs = () => {
-                    for (const sel of containerSelectors) {
-                        const container = document.querySelector(sel);
-                        if (!container) continue;
-                        const inputs = Array.from(container.querySelectorAll('input')).filter(el => !el.disabled);
-                        if (inputs.length >= 2) {
-                            return inputs.slice(0, 2);
-                        }
-                    }
-
-                    const ranked = Array.from(document.querySelectorAll('input'))
-                        .filter(el => !el.disabled && el.offsetParent !== null)
-                        .map(el => ({
-                            el,
-                            haystack: attributeScore(el),
-                        }));
-
-                    const startCandidates = ranked
-                        .filter(({ haystack }) => /from|start/.test(haystack));
-                    const endCandidates = ranked
-                        .filter(({ haystack }) => /to|end/.test(haystack));
-
-                    if (startCandidates.length && endCandidates.length) {
-                        return [startCandidates[0].el, endCandidates[0].el];
-                    }
-
-                    if (ranked.length >= 2) {
-                        return [ranked[0].el, ranked[1].el];
-                    }
-
-                    return [];
-                };
-
-                const inputs = findInputs();
-                if (inputs.length < 2) {
-                    return false;
-                }
-
-                const [startInput, endInput] = inputs;
-                fireEvents(startInput, start);
-                fireEvents(endInput, end);
-
-                return (
-                    (startInput.value || '').trim() === start &&
-                    (endInput.value || '').trim() === end
-                );
-            }
-            """,
-            start,
-            end,
+        js_start_selectors = (
+            "input[formcontrolname='fromDate']",
+            "input[formcontrolname='fromDateInput']",
+            "input[aria-label*='from']",
         )
-        if js_attempt:
-            page.keyboard.press("Enter")
-            page.wait_for_timeout(1000)
-            ss(page, "03_dates_set")
-            return True
+        js_end_selectors = (
+            "input[formcontrolname='toDate']",
+            "input[formcontrolname='toDateInput']",
+            "input[aria-label*='to']",
+        )
+        for start_sel in js_start_selectors:
+            for end_sel in js_end_selectors:
+                start_ok = page.evaluate(
+                    "(sel, value) => { const el = document.querySelector(sel); if (!el) return false; el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); return true; }",
+                    start_sel,
+                    start,
+                )
+                end_ok = page.evaluate(
+                    "(sel, value) => { const el = document.querySelector(sel); if (!el) return false; el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); return true; }",
+                    end_sel,
+                    end,
+                )
+                if start_ok and end_ok:
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(1000)
+                    ss(page, "03_dates_set")
+                    return True
     except Exception:
         pass
 
