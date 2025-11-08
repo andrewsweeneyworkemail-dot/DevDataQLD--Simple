@@ -47,6 +47,7 @@ if __package__:
         DBG_DIR,
         OUT_DIR,
         SS_DIR,
+        dump_dom,
         click_download_csv,
         date_range_ddmmyyyy,
         maybe_dismiss_banners,
@@ -65,6 +66,7 @@ else:  # pragma: no cover - support running via ``python scripts/dev_i_pipeline.
         DBG_DIR,
         OUT_DIR,
         SS_DIR,
+        dump_dom,
         click_download_csv,
         date_range_ddmmyyyy,
         maybe_dismiss_banners,
@@ -225,6 +227,12 @@ def open_document_library(page: Page, app_no: str) -> None:
         print("[INFO] Page size set to 100 entries.")
     except Exception:
         print("[WARN] Could not adjust page size; continuing with defaults.")
+
+    try:
+        page.wait_for_selector("table tr", timeout=10000)
+    except PWTimeout:
+        dump_dom(page, f"documents_timeout_{app_no}")
+        raise RuntimeError(f"Timed out waiting for documents table for {app_no}.")
 
 
 def parse_onclick_arguments(onclick: str) -> Optional[tuple[str, str, str]]:

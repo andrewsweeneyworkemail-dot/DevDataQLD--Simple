@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Sequence, Tuple
 
-from playwright.sync_api import Locator, TimeoutError as PWTimeout, sync_playwright
+from playwright.sync_api import Locator, Page, TimeoutError as PWTimeout, sync_playwright
 
 # The page with the search + results; you used this already:
 BASE_URL = "https://developmenti.brisbane.qld.gov.au/Home/ApplicationSearch"
@@ -37,14 +37,24 @@ def date_range_ddmmyyyy(days: int) -> tuple[str, str]:
     return start.strftime("%d/%m/%Y"), end.strftime("%d/%m/%Y")
 
 
-def ss(page, name: str) -> None:
+def ss(page: Page, name: str) -> None:
     try:
         page.screenshot(path=str(SS_DIR / f"{name}.png"), full_page=True)
     except Exception:
         pass
 
 
-def try_click_many(page, candidates: Iterable[Tuple[str, str]], timeout: int = 4000) -> bool:
+def dump_dom(page: Page, name: str) -> None:
+    """Persist the current DOM for later debugging."""
+
+    try:
+        html_path = DBG_DIR / f"{name}.html"
+        html_path.write_text(page.content())
+    except Exception:
+        pass
+
+
+def try_click_many(page: Page, candidates: Iterable[Tuple[str, str]], timeout: int = 4000) -> bool:
     for kind, label in candidates:
         try:
             if kind == "role_button":
@@ -64,7 +74,7 @@ def try_click_many(page, candidates: Iterable[Tuple[str, str]], timeout: int = 4
     return False
 
 
-def maybe_dismiss_banners(page) -> None:
+def maybe_dismiss_banners(page: Page) -> None:
     try_click_many(
         page,
         [
@@ -75,7 +85,7 @@ def maybe_dismiss_banners(page) -> None:
     )
 
 
-def open_date_range(page) -> None:
+def open_date_range(page: Page) -> None:
     try_click_many(
         page,
         [
@@ -88,7 +98,7 @@ def open_date_range(page) -> None:
     ss(page, "02_date_range_open")
 
 
-def set_date_range(page, start: str, end: str) -> bool:
+def set_date_range(page: Page, start: str, end: str) -> bool:
     """Attempt to populate the date range inputs with multiple selector strategies."""
 
     LocatorResolver = Callable[[], tuple[Locator, Locator]]
@@ -200,7 +210,7 @@ def set_date_range(page, start: str, end: str) -> bool:
     return False
 
 
-def show_results(page) -> None:
+def show_results(page: Page) -> None:
     try_click_many(page, [("text", r"Show Results"), ("role_button", r"Show Results")], timeout=10000)
     page.wait_for_timeout(1200)
     try_click_many(page, [("text", r"List"), ("role_button", r"List")], timeout=6000)
@@ -208,7 +218,7 @@ def show_results(page) -> None:
     ss(page, "04_results_view")
 
 
-def wait_for_results(page, timeout_ms: int = 20000) -> bool:
+def wait_for_results(page: Page, timeout_ms: int = 20000) -> bool:
     try:
         page.wait_for_selector("table, .mat-table, .results, .list", timeout=timeout_ms, state="visible")
         try:
@@ -220,7 +230,7 @@ def wait_for_results(page, timeout_ms: int = 20000) -> bool:
         return False
 
 
-def click_download_csv(page, save_path: Path) -> bool:
+def click_download_csv(page: Page, save_path: Path) -> bool:
     patterns = [
         ("role_button", r"CSV"),
         ("role_button", r"Download CSV"),
@@ -277,6 +287,9 @@ def run(days: int, status: Optional[str], out_csv: Path, headless: bool) -> int:
 
         ok_csv = click_download_csv(page, out_csv)
         ss(page, "05_after_download")
+
+        if not ok_csv:
+            dump_dom(page, "error_state")
 
         browser.close()
 
