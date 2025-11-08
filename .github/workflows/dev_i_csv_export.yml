@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright pandas pdfplumber tqdm
+          pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
       - name: Run Development.i pipeline
